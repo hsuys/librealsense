@@ -36,6 +36,7 @@ namespace librealsense
         const uint16_t RS416_PID            = 0x0b49; // F416
         const uint16_t RS430I_PID           = 0x0b4b; // D430i
         const uint16_t RS465_PID            = 0x0b4d; // D465
+        const uint16_t RS431_PID            = 0x0b4f; // D431
         const uint16_t RS416_RGB_PID        = 0x0B52; // F416 RGB
         const uint16_t RS405_PID            = 0x0B5B; // D405
         const uint16_t RS455_PID            = 0x0B5C; // D455
@@ -75,6 +76,7 @@ namespace librealsense
             ds::RS416_RGB_PID,
             ds::RS430I_PID,
             ds::RS465_PID,
+            ds::RS431_PID,
             ds::RS416_PID,
             ds::RS405_PID,
             ds::RS455_PID,
@@ -90,6 +92,7 @@ namespace librealsense
             ds::RS435_RGB_PID,
             ds::RS435I_PID,
             ds::RS465_PID,
+            ds::RS431_PID,
             ds::RS405_PID,
             ds::RS455_PID,
         };
@@ -138,6 +141,7 @@ namespace librealsense
             { RS430_MM_RGB_PID,     "Intel RealSense D430 with Tracking and RGB Modules"},
             { RS460_PID,            "Intel RealSense D460" },
             { RS435_RGB_PID,        "Intel RealSense D435"},
+            { RS431_PID,            "Intel RealSense D431"},
             { RS405U_PID,           "Intel RealSense DS5U" },
             { RS435I_PID,           "Intel RealSense D435I" },
             { RS416_PID,            "Intel RealSense F416"},
