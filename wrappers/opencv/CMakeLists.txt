@@ -7,6 +7,7 @@ find_package(OpenCV REQUIRED)
 
 set(DEPENDENCIES realsense2 ${OpenCV_LIBS})
 
+add_subdirectory(imwrite)
 add_subdirectory(imshow)
 add_subdirectory(grabcuts)
 add_subdirectory(latency-tool)
