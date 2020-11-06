@@ -47,7 +47,8 @@ int main(int argc, char * argv[]) try
         const int h = depth.as<rs2::video_frame>().get_height();
 
         // Create OpenCV matrix of size (w,h) from the colorized depth data
-        Mat image(Size(w, h), CV_8UC3, (void*)depth.get_data(), Mat::AUTO_STEP);
+        //Mat image(Size(w, h), CV_8UC3, (void*)depth.get_data(), Mat::AUTO_STEP);
+        Mat image(Size(w, h), CV_16UC1, (void*)data.get_depth_frame().get_data(), Mat::AUTO_STEP);
 
         // Update the window with new data
         imshow(window_name, image);
@@ -57,7 +58,7 @@ int main(int argc, char * argv[]) try
         save_frame_raw_data("depth.bin", raw_depth); //into binary file
 
         // Save 16bit depth raw data to a png file
-        cv::Mat cv_depth = cv::Mat(cv::Size(w, h), CV_16SC1, (void*)raw_depth.get_data());
+        cv::Mat cv_depth = cv::Mat(cv::Size(w, h), CV_16UC1, (void*)raw_depth.get_data());
         std::vector<int> cmprs_params;
         cmprs_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
         cmprs_params.push_back(0);
