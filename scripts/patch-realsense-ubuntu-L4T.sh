@@ -94,6 +94,12 @@ case ${JETSON_L4T_VERSION} in
 	"36.3")
 		PATCHES_REV="6.0"	# JP 6.0
 		KERNEL_RELEASE="5.15"
+                TEGRA_TAG="jetson_36.3"
+        ;;
+        "36.4")
+                PATCHES_REV="6.0"       # JP 6.1
+                KERNEL_RELEASE="5.15"
+                TEGRA_TAG="jetson_36.4"
 	;;
   *)
 	echo -e "\e[41mUnsupported JetPack revision ${JETSON_L4T_VERSION} aborting script\e[0m"
@@ -139,7 +145,6 @@ if [ "5.0.2" = "$PATCHES_REV" ]; then
 fi
 if [ "6.0" = "$PATCHES_REV" ]; then
 	TEGRA_SOURCE_SYNC_SH="source_sync_6.0.sh"
-	TEGRA_TAG="jetson_36.3"
 fi
 cp ./scripts/Tegra/$TEGRA_SOURCE_SYNC_SH ${sdk_dir}/Tegra
 
