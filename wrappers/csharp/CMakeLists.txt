@@ -11,4 +11,5 @@ add_subdirectory(tutorial/processing)
 add_subdirectory(tutorial/software-dev)
 add_subdirectory(tutorial/d400-occ)
 add_subdirectory(tutorial/load-json)
+add_subdirectory(tutorial/record)
 
