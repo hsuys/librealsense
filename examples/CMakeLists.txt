@@ -30,15 +30,11 @@ add_subdirectory(save-to-disk)
 add_subdirectory(multicam)
 add_subdirectory(multicam-modified)
 add_subdirectory(multicam-framedrop)
-<<<<<<< HEAD
 add_subdirectory(multicam-hdrd-480)
 add_subdirectory(multicam-hdrd-720)
 add_subdirectory(multicam-rgbd-480)
 add_subdirectory(multicam-rgbd-720)
-=======
-add_subdirectory(multicam-hdrd-720)
 add_subdirectory(framerate)
->>>>>>> 22ecda3b8a2240c51e923021d4f7e5ec91691e0a
 add_subdirectory(pointcloud)
 add_subdirectory(align)
 add_subdirectory(align-gl)

@@ -197,7 +197,7 @@ int main(int argc, char* argv[]) try
         }
     }
 
-    threads.push_back(std::thread(proc_FrameGrab, stream_profs, pipelines));
+    threads.push_back(std::thread(proc_FrameGrab, std::ref(stream_profs), std::ref(pipelines)));
 
     signal(SIGINT, crtlc);
 
@@ -239,3 +239,4 @@ catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;
 }
+
