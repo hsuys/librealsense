@@ -36,18 +36,20 @@ std::mutex my_lock;
 
 struct _stream_profile
 {
+    rs2::frame_queue frame_queue;
     std::string serial_number;
     std::string stream_name;
+    int fps;
     int unique_id;
     int total_frame_count;
-    rs2::pipeline pipe;
-    rs2::frame_queue frame_queue;
+    //rs2::pipeline pipe;
 };
 
 void proc_FrameCheck(_stream_profile& stream_profile)
 {
     int prev_frame_count = 0;
     long long prev_frame_timestamp = 0;
+    int tolerance = 1.2*1000000/stream_profile.fps; // current tolerance is 1.2 times of the 1/fps
     while (!stopped) {
         rs2::frame f;
         if (stream_profile.frame_queue.poll_for_frame(&f)) {
@@ -72,7 +74,7 @@ void proc_FrameCheck(_stream_profile& stream_profile)
             
             prev_frame_count = frame_count;
             
-            if (frame_timestamp_diff > 34000) {
+            if (frame_timestamp_diff > tolerance) {
                 std::cout << "\033[33m" << stream_profile.serial_number << " " << stream_profile.stream_name << " dropped: " << "[" << frame_timestamp_diff << "]" << "\033[0m" << std::endl;
             }
 
@@ -86,7 +88,6 @@ void proc_FrameCheck(_stream_profile& stream_profile)
 
 void proc_FrameGrab(std::vector<_stream_profile>& stream_profiles, std::vector<rs2::pipeline>& pipelines)
 {
-     std::cout << "proc_grab started" << stopped << std::endl;
     while (!stopped) {
         for (auto&& pipe : pipelines) {
             rs2::frameset fs;
@@ -112,46 +113,48 @@ int main(int argc, char* argv[]) try
 {
     rs2::context                          ctx;        // Create librealsense context for managing devices
     std::vector<rs2::pipeline>            pipelines;
-    std::string d455_serial = "";
-    std::string d435_serial = "";
 
+    std::vector<std::string> test_serials;
+    std::vector<std::string> connect_serials;
     std::vector<std::thread> threads;
 
-    if (argc < 3) {
-
-        std::cout << "Please input two camera serial numbers to start" << std::endl;
+    if (argc < 2) {
+        std::cout << "Please input at least one camera serial numbers to start" << std::endl;
         return EXIT_FAILURE;
     }
     else {
-        d455_serial = argv[1];
-        d435_serial = argv[2];
+        for (int i=1; i<argc; i++)
+            test_serials.push_back(argv[i]);
+
+        for (int i = 0; i < test_serials.size(); i++)
+            std::cout << "Testing: " << test_serials.at(i) << std::endl;
     }
 
     // Capture serial numbers before opening streaming
-    std::vector<std::string>              serials;
     for (auto&& dev : ctx.query_devices()) {
         std::string desc = dev.get_description();
         std::string serial = dev.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
         std::string fw = dev.get_info(RS2_CAMERA_INFO_FIRMWARE_VERSION);
         std::cout << "Found: " << desc << " f/w " << fw << std::endl;
-        serials.push_back(serial);
+        connect_serials.push_back(serial);
     }
 
-    if (serials.size() < 2) {
-        std::cout << " Please connect 2 RealSense Cameras to the host" << std::endl;
+    if (connect_serials.size() < 1) {
+        std::cout << " Please connect at least one RealSense Cameras to the host" << std::endl;
         return EXIT_FAILURE;
     }
     else {
-        for (const std::string sn : {d455_serial, d435_serial})
-            if (std::find(serials.begin(), serials.end(), sn) == serials.end()) {
+        for (const std::string sn : test_serials)
+            if (std::find(connect_serials.begin(), connect_serials.end(), sn) == connect_serials.end()) {
                 std::cout << sn << " cannot be paired" << std::endl;
                 return EXIT_FAILURE;
             }
             else
                 std::cout << sn << " paired successfully" << std::endl;
     }
+
     // Start a streaming pipe per each connected device
-    for (auto&& serial : serials) {
+    for (auto&& serial : test_serials) {
         rs2::pipeline pipe(ctx);
         rs2::config cfg;
 
@@ -185,12 +188,13 @@ int main(int argc, char* argv[]) try
             rs2::frame_queue frame_q(5);
             std::string str_name = stream.stream_name();
             int unique_id = stream.unique_id();
-            stream_profs[profile_id].pipe = pipe;
+            int frame_rate = stream.fps();
             stream_profs[profile_id].serial_number = sn;
             stream_profs[profile_id].stream_name = str_name;
             stream_profs[profile_id].total_frame_count = 0;
             stream_profs[profile_id].frame_queue = frame_q;
             stream_profs[profile_id].unique_id = unique_id;
+            stream_profs[profile_id].fps = frame_rate;
             threads.push_back(std::thread(proc_FrameCheck, std::ref(stream_profs[profile_id])));
             profile_id++;
 
