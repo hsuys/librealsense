@@ -27,6 +27,7 @@
 #define SLEEEP_MS       1 
 
 std::atomic_bool stopped(false);
+std::atomic_bool logging(false);
 std::mutex my_lock;
 
 void crtlc(int s)
@@ -45,7 +46,7 @@ struct _stream
 struct _sensor
 {
     std::string sn;
-    int tolerance; // current tolerance is 1.2 times of the 1/fps
+    float tolerance; // current tolerance is 1.2 times of the 1/fps
     int num_active_stream;
     std::vector<_stream> streams;
 };
@@ -57,8 +58,7 @@ void proc_stat(rs2::frame& f, std::vector<_sensor>& sensors)
     //std::string stream_format = rs2_format_to_string(f.get_profile().format());
     std::string stream_name = f.get_profile().stream_name();
     //int stream_index = f.get_profile().stream_index();
-    auto frame_count = static_cast<int>(f.get_frame_metadata(RS2_FRAME_METADATA_FRAME_COUNTER));
-    auto frame_timestamp = f.get_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP);
+    long long frame_timestamp = 0;
 
     for (auto&& sen : sensors) {
         
@@ -67,25 +67,33 @@ void proc_stat(rs2::frame& f, std::vector<_sensor>& sensors)
                 if (str.sp.unique_id() == frame_unique_id) {
                     //std::cout << sen.sn << ", " << s.sp.unique_id() << ", " << std::endl;
 
-                    if (str.prev_frame_timestamp == 0) str.prev_frame_timestamp = frame_timestamp;
-                    if (str.prev_frame_count == 0) str.prev_frame_count = frame_count;
-                    auto frame_timestamp_diff = frame_timestamp - str.prev_frame_timestamp;
-                    auto frame_count_diff = frame_count - str.prev_frame_count;
-
-                    if (frame_count_diff == 0 || frame_timestamp_diff == 0) { //duplicate or no frame md?
-                        std::cout << "No or Duplicated Metadata, " << sen.sn << ", " << frame_unique_id << ", " << stream_name << ", " << frame_count_diff << std::endl;
+                    if (f.supports_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP)) {
+                        frame_timestamp = f.get_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP);
                     }
-                    else if (frame_count_diff > 1 || frame_timestamp_diff > sen.tolerance) { //frame drop
-                        if (frame_count_diff != frame_timestamp_diff / (1000000 / f.get_profile().fps()))
-                            std::cout << "Counter Reset, " << "[" << frame_timestamp_diff / (1000000 / f.get_profile().fps()) << "], ";
-                        std::cout << sen.sn << ", " << frame_unique_id << ", " << stream_name << ", " << frame_count_diff << std::endl;
-
+                    else if (f.supports_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP)) {
+                        frame_timestamp = f.get_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP);
+                        sen.tolerance = sen.tolerance / 1000.0;
                     }
                     else {
-                        str.total_frame_count += 1;
+                        frame_timestamp = f.get_timestamp();
+                        sen.tolerance = sen.tolerance / 1000.0;
+                    }
+                    if (str.prev_frame_timestamp == 0) str.prev_frame_timestamp = frame_timestamp;
+                    auto frame_timestamp_diff = frame_timestamp - str.prev_frame_timestamp;
+
+                    if (logging) {
+                        if (frame_timestamp_diff == 0) { //duplicate or no frame md?
+                            std::cout << "Duplicated Frame, " << sen.sn << ", " << frame_unique_id << ", " << stream_name << std::endl;
+                        }
+                        else if (frame_timestamp_diff > sen.tolerance) { //frame drop
+                            std::cout << sen.sn << ", " << frame_unique_id << ", " << stream_name << ", " << frame_timestamp_diff << std::endl;
+                            str.total_frame_count += 1;
+                        }
+                        else {
+                            str.total_frame_count += 1;
+                        }
                     }
                     str.prev_frame_timestamp = frame_timestamp;
-                    str.prev_frame_count = frame_count;
                 }
             }
         }
@@ -160,7 +168,8 @@ int main(int argc, char* argv[]) try
                 //    std::cout << vsp.stream_name() << "," << vsp.stream_index() << "," << vsp.width() << "," << vsp.height() << "," << vsp.fps() << "," << vsp.unique_id() << std::endl;
                 //}
                 
-                std::cout << "Configuring " << info << std::endl;
+                std::cout << "... Configuring " << info << std::endl;
+
                 if (info == "RGB Camera") {
                     auto stream_profiles = s.get_stream_profiles();
                     std::vector<rs2::stream_profile > rgb_stream_profile;
@@ -217,7 +226,7 @@ int main(int argc, char* argv[]) try
         }
         sens.push_back(sen);
 
-        s.start([&sens](rs2::frame f) mutable
+        s.start([&sens](rs2::frame f)
             {
                 //std::string format = rs2_format_to_string(f.get_profile().format());
                 //std::cout << modules[id].sn << ", " << modules[id].count << ", " << modules[id].prev_frame_count << ", " << modules[id].tolerance << std::endl;
@@ -227,7 +236,7 @@ int main(int argc, char* argv[]) try
 
     for (auto&& sen : sens) {
         for (auto&& s : sen.streams) {
-            std::cout << sen.sn << "-" << s.sp.unique_id() << ", " << s.sp.stream_name();
+            std::cout <<"* " << sen.sn << "-" << s.sp.unique_id() << ", " << s.sp.stream_name();
             if (auto vsp = s.sp.as< rs2::video_stream_profile >())
                 std::cout << ", " << vsp.width() << ", " << vsp.height();
             std::cout << ", " << s.sp.format() << ", " << s.sp.fps() << std::endl;
@@ -254,8 +263,9 @@ int main(int argc, char* argv[]) try
                 }
             }
             std::cout << std::endl;
+            logging = true;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        //std::this_thread::sleep_for(std::chrono::seconds(1)); // putting thread to sleep may cause drop
     }
     std::cout << "Stopping main proc..." << std::endl;
     stopped = true;
