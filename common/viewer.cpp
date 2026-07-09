@@ -1406,9 +1406,11 @@ namespace rs2
             if (stream.second.is_stream_visible())
             {
                 force_minimum_size_for_display(stream.second);
-                
-                active_streams.insert(&stream.second);
-                stream_index[&stream.second] = stream.first;
+                if (stream.second.profile.stream_index() != 2)
+                {
+                    active_streams.insert(&stream.second);
+                    stream_index[&stream.second] = stream.first;
+                }
             }
         }
 
@@ -2440,6 +2442,9 @@ namespace rs2
     bool viewer_model::should_render_frame(const rs2::stream_model& model) const
     {
         if (model.profile.stream_type() == RS2_STREAM_SAFETY)
+            return false;
+            
+        if (model.profile.stream_index() == 2)
             return false;
 
         return true;
