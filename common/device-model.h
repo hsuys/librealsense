@@ -441,6 +441,7 @@ namespace rs2
         hdr_model _hdr_model;
 
         bool _is_d500_device;
+        bool _simulated_start = true;
     };
 
     std::pair<std::string, std::string> get_device_name(const device& dev);

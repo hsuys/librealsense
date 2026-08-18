@@ -2635,8 +2635,17 @@ namespace rs2
                             bool disable_perception = ( sub_has_perception && ! are_color_and_depth_streaming() ) || blocking_filter_enabled;
                             if( disable_perception )
                                 ImGui::BeginDisabled();
+                            
+                            auto stream_type = sub->profiles.front().stream_type();
+                            bool stream_on = false;
+                            // Automatically stream depth and/or color upon initial launch
+                            // else wait for the manual button click
+                            if (_simulated_start && (stream_type == RS2_STREAM_DEPTH || stream_type == RS2_STREAM_COLOR))
+                                stream_on = true;
+                            else
+                                stream_on = ImGui::Button(label.c_str(), button_size);
 
-                            if( ImGui::Button( label.c_str(), button_size ) )
+                            if (stream_on)
                             {
                                 if (profiles.empty()) // profiles might be already filled
                                     profiles = sub->get_selected_profiles();
@@ -2712,6 +2721,8 @@ namespace rs2
                                 stop_recording = true;
                                 _update_readonly_options_timer.set_expired();
                             }
+
+                            _simulated_start = false;
                         }
                         if (ImGui::IsItemHovered())
                         {
