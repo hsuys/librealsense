@@ -2677,6 +2677,30 @@ namespace rs2
                                 {
                                     viewer.begin_stream(sub, profile);
                                 }
+
+                                // D585 set the exposure roi to the center 1/8
+                                if (_is_d500_device && _simulated_start && (stream_type == RS2_STREAM_DEPTH))
+                                {
+                                    auto width = profiles.front().as<video_stream_profile>().width();
+                                    auto height = profiles.front().as<video_stream_profile>().height();
+                                    int ratio = 8;
+                                    int cx = width / 2 - 1;
+                                    int cy = height / 2 - 1;
+                                    int rw = width / ratio;
+                                    int rh = height / ratio;
+
+                                    auto ds = sub->dev.first< depth_sensor >();
+                                    if (ds.is<roi_sensor>())
+                                    {
+                                        auto r = ds.as<roi_sensor>().get_region_of_interest();
+
+                                        r.min_x = cx - rw;
+                                        r.max_x = cx + rw - 1;
+                                        r.min_y = cy - rh;
+                                        r.max_y = cy + rh - 1;
+                                        ds.as<roi_sensor>().set_region_of_interest(r);
+                                    }
+                                }
                             }
                             if( disable_perception )
                             {
