@@ -127,6 +127,16 @@ d500_close_range_embedded_filter::d500_close_range_embedded_filter( std::weak_pt
     auto opt = std::make_shared< close_range_xu_option >( raw_depth_ep );
     register_option( RS2_OPTION_EMBEDDED_FILTER_ENABLED, opt );
     _options_watcher.register_option( RS2_OPTION_EMBEDDED_FILTER_ENABLED, opt );
+
+    //Enable embedded close range filter by default for D585 demo
+    try
+    {
+        opt->set(1.f);
+    }
+    catch (std::exception const& e)
+    {
+        LOG_WARNING("Could not enable Improved Close Range Depth by default: " << e.what());
+    }
 }
 
 }  // namespace librealsense
