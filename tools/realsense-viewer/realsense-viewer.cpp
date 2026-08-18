@@ -197,7 +197,8 @@ void refresh_devices(std::mutex& m,
                 device_names.push_back(dev_descriptor);
 
                 bool added = false;
-                if (device_models.size() == 0 &&
+                // Add two Realsense devices from souce e.g., D455 + D585
+                if (device_models.size() < 2 &&
                     dev.supports(RS2_CAMERA_INFO_NAME) && std::string(dev.get_info(RS2_CAMERA_INFO_NAME)) != "Platform Camera" && std::string(dev.get_info(RS2_CAMERA_INFO_NAME)).find("IP Device") == std::string::npos)
                 {
                     try
