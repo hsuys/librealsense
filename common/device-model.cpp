@@ -2725,6 +2725,50 @@ namespace rs2
                         RsImGui_ScopePushStyleColor(ImGuiCol_Text, light_blue);
                         RsImGui_ScopePushStyleColor(ImGuiCol_TextSelectedBg, light_blue + 0.1f);
 
+
+                        /* yhsu debug - auto stream restart */
+                        if (_simulated_start)
+                        {
+                            for (auto&& s : viewer.streams)
+                            {
+                                if (!s.second.is_stream_alive())
+                                {
+                                    sub->stop(viewer.not_model);
+                                    stop_perception_if_video_stopped(viewer);
+                                    std::string friendly_name = sub->s->get_info(RS2_CAMERA_INFO_NAME);
+                                    if ((friendly_name.find("Tracking") != std::string::npos) ||
+                                        (friendly_name.find("Motion") != std::string::npos))
+                                    {
+                                        viewer.synchronization_enable = viewer.synchronization_enable_prev_state.load();
+                                    }
+
+                                    if (!std::any_of(subdevices.begin(), subdevices.end(),
+                                        [](const std::shared_ptr<subdevice_model>& sm)
+                                        {
+                                            return sm->streaming;
+                                        }))
+                                    {
+                                        stop_recording = true;
+                                        _update_readonly_options_timer.set_expired();
+                                    }
+                                }
+                            }
+                        }
+                        /* yhsu debug end */
+
+                        /* yhsu debug roi */
+                        auto stream_type = sub->profiles.front().stream_type();
+                        // D585 set the exposure roi to the center 1/8
+                        if (_is_d500_device && _simulated_start && (stream_type == RS2_STREAM_DEPTH))
+                        {
+                            auto ds = sub->dev.first< depth_sensor >();
+                            if (ds.is<roi_sensor>())
+                            {
+                                auto r = ds.as<roi_sensor>().get_region_of_interest();
+                            }
+                        }
+                        /* yhsu debug end */
+
                         if( ImGui::Button( label.c_str(), button_size ) )
                         {
                             sub->stop(viewer.not_model);
