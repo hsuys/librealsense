@@ -2756,19 +2756,6 @@ namespace rs2
                         }
                         /* yhsu debug end */
 
-                        /* yhsu debug roi */
-                        auto stream_type = sub->profiles.front().stream_type();
-                        // D585 set the exposure roi to the center 1/8
-                        if (_is_d500_device && _simulated_start && (stream_type == RS2_STREAM_DEPTH))
-                        {
-                            auto ds = sub->dev.first< depth_sensor >();
-                            if (ds.is<roi_sensor>())
-                            {
-                                auto r = ds.as<roi_sensor>().get_region_of_interest();
-                            }
-                        }
-                        /* yhsu debug end */
-
                         if( ImGui::Button( label.c_str(), button_size ) )
                         {
                             sub->stop(viewer.not_model);

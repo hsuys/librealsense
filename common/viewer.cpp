@@ -1432,9 +1432,12 @@ namespace rs2
         std::sort(default_ordered.begin(), default_ordered.end(),
             [](const stream_model* sm1, const stream_model* sm2)
             {
+#if 1 //vertical layout
                 return (sm1->profile.unique_id() < sm2->profile.unique_id());
-                //return (sm1->profile.stream_type() < sm2->profile.stream_type()) ||
-                //    ((sm1->profile.stream_type() == sm2->profile.stream_type()) && (sm1->profile.stream_index() < sm2->profile.stream_index()));
+#else //horizontal layout
+                return (sm1->profile.stream_type() < sm2->profile.stream_type()) ||
+                    ((sm1->profile.stream_type() == sm2->profile.stream_type()) && (sm1->profile.stream_index() < sm2->profile.stream_index()));
+#endif
             });
 
         // Drop streams that are no longer active from the runtime order
@@ -1442,7 +1445,7 @@ namespace rs2
             std::remove_if(_streams_order.begin(), _streams_order.end(),
                 [&](int key) { return by_key.find(key) == by_key.end(); }),
             _streams_order.end());
-        _streams_order.clear();
+
         // Append newly-activated streams, keeping their default relative order
         for (auto&& sm : default_ordered)
         {
@@ -1450,7 +1453,7 @@ namespace rs2
             if (std::find(_streams_order.begin(), _streams_order.end(), key) == _streams_order.end())
                 _streams_order.push_back(key);
         }
-        
+
         // Apply each camera's saved arrangement: reorder a camera's streams among the slots
         // they already occupy, following the saved descriptor order. Streams not present in
         // the saved order (e.g. newly enabled) keep their relative position at the end.
