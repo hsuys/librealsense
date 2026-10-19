@@ -2241,10 +2241,14 @@ namespace rs2
 
                 for( object_in_frame & object : *p_objects )
                 {
+#if 0
                     rect const & normalized_bbox = stream_mv.profile.stream_type() == RS2_STREAM_DEPTH
                         ? object.normalized_depth_bbox
                         : object.normalized_color_bbox;
                     rect const unbbox = normalized_bbox.unnormalize( stream_rect );
+#else
+                    rect const unbbox = object.normalized_color_bbox.unnormalize(stream_rect);
+#endif
                     rect bbox = unbbox.grow( 10, 5 );  // Allow more text, and easier identification of the face
 
                     float a = 0.75f;
@@ -3876,7 +3880,7 @@ namespace rs2
             return streams[stream_origin_iter->second].upload_frame(std::move(f));
         else return nullptr;
     }
-
+#if 0
     void viewer_model::get_frame_objects_container( rs2::frame & frame,
                                                           std::shared_ptr< atomic_objects_in_frame > & objects )
     {
@@ -3890,6 +3894,31 @@ namespace rs2
         }
         if( it != streams.end() && it->second.dev )
             objects = it->second.dev->detected_objects;
+    }
+#endif
+    std::shared_ptr< subdevice_model > viewer_model::get_frame_subdevice(rs2::frame const& frame) const
+    {
+        auto uid = frame.get_profile().unique_id();
+        auto it = streams.find(uid);
+        if (it == streams.end())
+        {
+            auto orig = streams_origin.find(uid);
+            if (orig != streams_origin.end())
+                it = streams.find(orig->second);
+        }
+        return it != streams.end() ? it->second.dev : nullptr;
+    }
+
+    // Object detection runs on a single color imager of its own camera: dual-RGB firmware reports boxes for
+    // the lower-indexed color stream, and a device with one color sensor only has index 0.
+    int viewer_model::od_color_stream_index(device_model const* dev_model) const
+    {
+        int index = std::numeric_limits< int >::max();
+        for (auto const& s : streams)
+            if (s.second.dev && s.second.dev->dev_model == dev_model
+                && s.second.profile.stream_type() == RS2_STREAM_COLOR)
+                index = std::min(index, s.second.profile.stream_index());
+        return index;
     }
 
     rs2::rect viewer_model::project_color_bbox_to_depth( const rs2::rect &     color_bbox,
@@ -3912,6 +3941,275 @@ namespace rs2
         return rs2::rect{ dst_tl[0], dst_tl[1], dst_br[0] - dst_tl[0], dst_br[1] - dst_tl[1] }.intersection( depth_frame_rect );
     }
 
+#if 1
+
+    // Group the tick's frames per camera and hand each camera's set to update_device_detections. The OD stream
+    // and the color stream it describes sit on different sensors of the same device, so with several cameras
+    // connected an OD frame must never be paired against another camera's color or depth.
+    void viewer_model::process_object_detection_frames(std::map< int, rs2::frame >& last_frames)
+    {
+        // These frame types have no default constructor; initialise from an empty rs2::frame.
+        struct device_frames
+        {
+            rs2::object_detection_frame odf{ rs2::frame{} };
+            rs2::video_frame cf{ rs2::frame{} };
+            rs2::depth_frame df{ rs2::frame{} };
+            std::shared_ptr< subdevice_model > color_sub;
+            bool fresh_depth = false;
+        };
+        std::map< device_model*, device_frames > per_device;
+        auto const now = std::chrono::high_resolution_clock::now();
+
+        // Seed an entry per camera that shows a color stream, so a camera that stopped delivering frames
+        // (sensor stopped, cable pulled) still ages its overlay out instead of leaving it frozen on screen.
+        for (auto const& s : streams)
+        {
+            auto const& sm = s.second;
+            if (!sm.dev || !sm.dev->dev_model)
+                continue;
+            auto const stype = sm.profile.stream_type();
+            bool const is_od_color = stype == RS2_STREAM_COLOR
+                && sm.profile.stream_index() == od_color_stream_index(sm.dev->dev_model);
+            if (!is_od_color && stype != RS2_STREAM_DEPTH)
+                continue;
+            auto& frames = per_device[sm.dev->dev_model];
+            if (is_od_color)
+                frames.color_sub = sm.dev;
+            // Reuse the displayed frame cache: USB sensors need not arrive in the same render tick.
+            // Stopped/stalled streams must not supply stale inputs to a later OD session.
+            auto const fps = sm.profile.fps();
+            if (!sm.dev->streaming || !sm.texture || fps <= 0
+                || now - sm.last_frame > std::chrono::duration< double >(3. / fps))
+                continue;
+            auto cached = sm.texture->get_last_frame();
+            if (is_od_color)
+                frames.cf = cached.as< rs2::video_frame >();
+            else if (!frames.df)
+                frames.df = cached.as< rs2::depth_frame >();
+        }
+
+        for (auto& kv : last_frames)
+        {
+            rs2::frame& frame = kv.second;
+            if (!frame)
+                continue;
+
+            auto stype = frame.get_profile().stream_type();
+            if (stype != RS2_STREAM_OBJECT_DETECTION && stype != RS2_STREAM_COLOR && stype != RS2_STREAM_DEPTH)
+                continue;
+
+            auto sub = get_frame_subdevice(frame);
+            if (!sub || !sub->dev_model)
+                continue;
+            auto& frames = per_device[sub->dev_model];
+
+            if (stype == RS2_STREAM_OBJECT_DETECTION)
+            {
+                if (!frames.odf)
+                    frames.odf = frame.as< rs2::object_detection_frame >();
+            }
+            else if (stype == RS2_STREAM_COLOR)
+            {
+                // Same rule the draw gate uses, so the two always agree on which stream carries the overlay
+                if (frame.get_profile().stream_index() == od_color_stream_index(sub->dev_model))
+                    frames.cf = frame.as< rs2::video_frame >();
+            }
+            else if (!frames.fresh_depth)
+            {
+                frames.df = frame.as< rs2::depth_frame >();
+                frames.fresh_depth = true;
+            }
+        }
+
+        for (auto& kv : per_device)
+        {
+            auto& frames = kv.second;
+            // Without a color stream on this camera we have nowhere to draw
+            if (frames.color_sub && frames.color_sub->detected_objects)
+                update_device_detections(frames.odf, frames.cf, frames.df, frames.color_sub->detected_objects);
+        }
+    }
+
+    // Turn one camera's object detection frame into the overlay entries drawn on its color stream.
+    void viewer_model::update_device_detections(rs2::object_detection_frame const& odf,
+        rs2::video_frame const& cf,
+        rs2::depth_frame const& df,
+        std::shared_ptr< atomic_objects_in_frame > const& objects)
+    {
+        // A render tick without new OD is normal. Expire by elapsed time, not display refresh rate.
+        // Color may come from its recent displayed-frame cache; Depth is optional.
+        auto const now = std::chrono::steady_clock::now();
+        static constexpr auto OD_TIMEOUT = std::chrono::milliseconds(200);
+        if (!odf || !cf)
+        {
+            if (!cf || now - objects->last_od_frame_time > OD_TIMEOUT)
+            {
+                std::lock_guard< std::mutex > lock(objects->mutex);
+                objects->clear();
+            }
+            return;
+        }
+        objects->last_od_frame_time = now;
+
+        // Fresh OD frame with no detections — clear
+        if (odf.get_detection_count() == 0)
+        {
+            std::lock_guard< std::mutex > lock(objects->mutex);
+            objects->clear();
+            return;
+        }
+
+        try
+        {
+            auto color_vsp = cf.get_profile().as< rs2::video_stream_profile >();
+            rs2_intrinsics color_intrin = color_vsp.get_intrinsics();
+            rs2::rect color_frame_rect{ 0.f, 0.f, float(color_intrin.width), float(color_intrin.height) };
+
+            // Depth is optional: only the viewer-side distance fallback below needs it
+            rs2_intrinsics depth_intrin{};
+            rs2_extrinsics color_to_depth{}, depth_to_color{};
+            uint16_t const* depth_data = nullptr;
+            if (df)
+            {
+                auto depth_vsp = df.get_profile().as< rs2::video_stream_profile >();
+                depth_intrin = depth_vsp.get_intrinsics();
+                color_to_depth = color_vsp.get_extrinsics_to(depth_vsp);
+                depth_to_color = depth_vsp.get_extrinsics_to(color_vsp);
+                depth_data = reinterpret_cast<uint16_t const*>(df.get_data());
+            }
+            rs2::rect depth_frame_rect{ 0.f, 0.f, float(depth_intrin.width), float(depth_intrin.height) };
+
+            com::depth_image_16 com_raw{ depth_data, depth_intrin.width, depth_intrin.height };
+            std::vector< uint8_t > depth8u_buf(depth_intrin.width * depth_intrin.height);
+            com::depth_image_8 com_depth8u{ depth8u_buf.data(), depth_intrin.width, depth_intrin.height };
+            bool depth8u_ready = false;
+
+            objects_in_frame new_objects;
+            unsigned int const count = odf.get_detection_count();
+
+            // Non-maximum suppression: sort by score, suppress overlapping same-class boxes
+            static constexpr float NMS_IOU_THRESHOLD = 0.55f;
+            static constexpr int   NMS_SCORE_THRESHOLD = 45;
+            std::vector< rs2_object_detection > raw_dets(count);
+            for (unsigned int i = 0; i < count; ++i)
+                raw_dets[i] = odf.get_detection(i);
+            std::sort(raw_dets.begin(), raw_dets.end(),
+                [](const rs2_object_detection& a, const rs2_object_detection& b) { return a.score > b.score; });
+            std::vector< bool > suppressed(count, false);
+            for (size_t i = 0; i < count; ++i)
+                if (raw_dets[i].score < NMS_SCORE_THRESHOLD)
+                    suppressed[i] = true;
+            for (size_t i = 0; i < count; ++i)
+            {
+                if (suppressed[i]) continue;
+                rs2::rect bi{ float(raw_dets[i].top_left_x), float(raw_dets[i].top_left_y),
+                              float(raw_dets[i].bottom_right_x - raw_dets[i].top_left_x),
+                              float(raw_dets[i].bottom_right_y - raw_dets[i].top_left_y) };
+                for (size_t j = i + 1; j < count; ++j)
+                {
+                    if (suppressed[j] || raw_dets[j].class_id != raw_dets[i].class_id) continue;
+                    rs2::rect bj{ float(raw_dets[j].top_left_x), float(raw_dets[j].top_left_y),
+                                  float(raw_dets[j].bottom_right_x - raw_dets[j].top_left_x),
+                                  float(raw_dets[j].bottom_right_y - raw_dets[j].top_left_y) };
+                    float inter_area = bi.intersection(bj).area();
+                    float union_area = bi.area() + bj.area() - inter_area;
+                    if (union_area > 0.f && inter_area / union_area > NMS_IOU_THRESHOLD)
+                        suppressed[j] = true;
+                }
+            }
+
+            size_t obj_id = 0;
+            for (size_t i = 0; i < count; ++i)
+            {
+                if (suppressed[i]) continue;
+                rs2_object_detection const& det = raw_dets[i];
+
+                // Pixel-coordinate bounding box in the color frame
+                rs2::rect color_bbox{ float(det.top_left_x),
+                                      float(det.top_left_y),
+                                      float(det.bottom_right_x - det.top_left_x),
+                                      float(det.bottom_right_y - det.top_left_y) };
+                rs2::rect normalized_color_bbox = color_bbox.normalize(color_frame_rect);
+
+                float const hkr_depth_m = det.depth;
+                float viewer_depth_m = 0.f;
+
+                // TODO: temporary fallback — viewer-side COM runs only when HKR firmware
+                // returns 0 (XU command not supported or device not ready).
+                // Checked per-detection intentionally: firmware could return 0 for individual
+                // detections (e.g. out-of-range) even when HKR COM is otherwise working.
+                // Remove once HKR COM is fully implemented and reliable on all devices.
+                if (hkr_depth_m == 0.f && df)
+                {
+                    if (!depth8u_ready)
+                    {
+                        com::center_of_mass_calculator::create_depth_8u(com_raw, com_depth8u);
+                        depth8u_ready = true;
+                    }
+                    // COM ROI: scale the color bbox to depth resolution, clipped to the frame.
+                    float const depth_scale_x = float(depth_intrin.width) / float(color_intrin.width);
+                    float const depth_scale_y = float(depth_intrin.height) / float(color_intrin.height);
+                    rs2::rect depth_bbox = rs2::rect{
+                        color_bbox.x * depth_scale_x, color_bbox.y * depth_scale_y,
+                        color_bbox.w * depth_scale_x, color_bbox.h * depth_scale_y }.intersection(depth_frame_rect);
+                    int const com_x = (int)depth_bbox.x;
+                    int const com_y = (int)depth_bbox.y;
+                    com::rect  com_bbox{ com_x, com_y,
+                                         (int)(depth_bbox.x + depth_bbox.w + 0.5f) - com_x,
+                                         (int)(depth_bbox.y + depth_bbox.h + 0.5f) - com_y };
+                    com::vec2f com_center{ depth_bbox.x + depth_bbox.w * 0.5f,
+                                           depth_bbox.y + depth_bbox.h * 0.5f };
+                    com::camera_intrinsics com_intrin{ depth_intrin.fx, depth_intrin.fy,
+                                                       depth_intrin.ppx, depth_intrin.ppy };
+                    // Project bbox center from color space to raw-depth space to get
+                    // the stereo-baseline pixel shift; keep {0,0} if no depth at bbox center.
+                    float shift_x = 0.f, shift_y = 0.f;
+                    float center_px[2] = { color_bbox.x + color_bbox.w * 0.5f,
+                                           color_bbox.y + color_bbox.h * 0.5f };
+                    float const depth_units = df.get_units();
+                    float depth_px[2] = { -1.f, -1.f };
+                    rs2_project_color_pixel_to_depth_pixel(depth_px, depth_data, depth_units, 0.1f, 10.f,
+                        &depth_intrin, &color_intrin, &color_to_depth, &depth_to_color, center_px);
+                    if (depth_px[0] >= 0.f && depth_px[0] < float(depth_intrin.width) &&
+                        depth_px[1] >= 0.f && depth_px[1] < float(depth_intrin.height))
+                    {
+                        uint16_t center_raw = depth_data[(int)depth_px[1] * depth_intrin.width + (int)depth_px[0]];
+                        float const center_m = center_raw * depth_units;
+                        if (center_m > 0.4f && center_m < 8.0f)
+                        {
+                            shift_x = depth_px[0] - center_px[0] * depth_scale_x;
+                            shift_y = depth_px[1] - center_px[1] * depth_scale_y;
+                        }
+                    }
+                    com::person_center_of_mass com_result{};
+                    com::center_of_mass_calculator::calculate(com_raw, com_depth8u, com_bbox, com_center,
+                        &com_intrin, com_result, { shift_x, shift_y });
+                    if (com_result.mean_body_depth > 0.f)
+                        viewer_depth_m = com_result.mean_body_depth / 1000.f;
+                }
+
+                float const mean_depth = hkr_depth_m > 0.f ? hkr_depth_m : viewer_depth_m;
+
+                std::string name = object_type_to_string(static_cast<object_type>(det.class_id));
+                new_objects.emplace_back(obj_id++, name, normalized_color_bbox, mean_depth,
+                    hkr_depth_m, det.score,
+                    static_cast<object_type>(det.class_id));
+            }
+
+            std::lock_guard< std::mutex > lock(objects->mutex);
+            if (objects->sensor_is_on)
+                objects->swap(new_objects);
+            else
+                objects->clear();
+        }
+        catch (std::exception const& e)
+        {
+            LOG_WARNING("Object detection processing: " << e.what());
+        }
+    }
+
+
+#else
     void viewer_model::process_object_detection_frames( std::map< int, rs2::frame > & last_frames )
     {
         // Scan last_frames for an object detection frame, a color frame, and a depth frame.
@@ -3926,6 +4224,9 @@ namespace rs2
             rs2::frame & frame = kv.second;
             if( ! frame )
                 continue;
+            
+            auto sensor = rs2::sensor_from_frame(frame);
+            auto product_line = std::string(sensor->get_info(RS2_CAMERA_INFO_PRODUCT_LINE));
 
             auto stype = frame.get_profile().stream_type();
 
@@ -3933,7 +4234,7 @@ namespace rs2
             {
                 odf = frame.as< rs2::object_detection_frame >();
             }
-            else if( stype == RS2_STREAM_COLOR && ! cf )
+            else if( stype == RS2_STREAM_COLOR && ! cf && product_line == "D500")
             {
                 cf = frame.as< rs2::video_frame >();
                 get_frame_objects_container( frame, objects );
@@ -4058,7 +4359,7 @@ namespace rs2
                 float const hkr_depth_m = det.depth;
                 float viewer_depth_m = 0.f;
                 float com_rel_u = 0.5f, com_rel_v = 0.5f;
-
+                
                 // TODO: temporary fallback — viewer-side COM runs only when HKR firmware
                 // returns 0 (XU command not supported or device not ready).
                 // Checked per-detection intentionally: firmware could return 0 for individual
@@ -4134,7 +4435,7 @@ namespace rs2
             LOG_WARNING( "Object detection processing: " << e.what() );
         }
     }
-
+#endif
 
     void viewer_model::draw_viewport(const rect& viewer_rect,
         ux_window& window, int devices, std::string& error_message,

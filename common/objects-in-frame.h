@@ -17,7 +17,32 @@ enum class object_type
 };
 
 std::string object_type_to_string( object_type type );
+#if 1
 
+struct object_in_frame
+{
+    rs2::rect normalized_color_bbox;
+    std::string name;
+    float mean_depth;
+    float metadata_depth;         // distance reported by the detection model (meters); 0 if unavailable
+    int   score;                  // detection confidence, 0-100
+    size_t id;
+    object_type type = object_type::other;
+
+    object_in_frame(size_t _id, std::string const& _name, rs2::rect _bbox_color, float _depth,
+        float _metadata_depth, int _score,
+        object_type _type = object_type::other)
+        : normalized_color_bbox(_bbox_color)
+        , name(_name)
+        , mean_depth(_depth)
+        , metadata_depth(_metadata_depth)
+        , score(_score)
+        , id(_id)
+        , type(_type)
+    {
+    }
+};
+#else
 struct object_in_frame
 {
     rs2::rect normalized_color_bbox, normalized_depth_bbox;
@@ -45,7 +70,7 @@ struct object_in_frame
     {
     }
 };
-
+#endif
 
 typedef std::vector< object_in_frame > objects_in_frame;
 
@@ -54,5 +79,6 @@ struct atomic_objects_in_frame : public objects_in_frame
 {
     std::mutex mutex;
     bool sensor_is_on = true;
-    int ticks_without_od_frame = 0;  // render ticks since last OD frame; cleared on every OD frame arrival
+    std::chrono::steady_clock::time_point last_od_frame_time{};
+    //int ticks_without_od_frame = 0;  // render ticks since last OD frame; cleared on every OD frame arrival
 };

@@ -2683,13 +2683,14 @@ namespace rs2
                                 {
                                     auto width = profiles.front().as<video_stream_profile>().width();
                                     auto height = profiles.front().as<video_stream_profile>().height();
-                                    int ratio = 8;
+                                    float ratio_w = 1.5;
+                                    float ratio_h = 8;
                                     int cx = width / 2 - 1;
                                     int cy = height / 2 - 1;
-                                    int rw = width / ratio;
-                                    int rh = height / ratio;
+                                    int rw = (width / ratio_w) / 2;
+                                    int rh = (height / ratio_h) / 2;
 
-                                    auto ds = sub->dev.first< depth_sensor >();
+                                    auto ds = sub->dev.first<depth_sensor>();
                                     if (ds.is<roi_sensor>())
                                     {
                                         auto r = ds.as<roi_sensor>().get_region_of_interest();
