@@ -1446,6 +1446,11 @@ namespace rs2
                 [&](int key) { return by_key.find(key) == by_key.end(); }),
             _streams_order.end());
 
+        /* yhsu If new stream started, re - arrange entire _stream_order vector */
+        if (default_ordered.size() > _streams_order.size())
+            _streams_order.clear();
+        /* yhsu debug */
+
         // Append newly-activated streams, keeping their default relative order
         for (auto&& sm : default_ordered)
         {
