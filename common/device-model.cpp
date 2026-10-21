@@ -2677,31 +2677,6 @@ namespace rs2
                                 {
                                     viewer.begin_stream(sub, profile);
                                 }
-
-                                // D585 set the exposure roi to the center 1/8
-                                if (_is_d500_device && _simulated_start && (stream_type == RS2_STREAM_DEPTH))
-                                {
-                                    auto width = profiles.front().as<video_stream_profile>().width();
-                                    auto height = profiles.front().as<video_stream_profile>().height();
-                                    float ratio_w = 1.5;
-                                    float ratio_h = 8;
-                                    int cx = width / 2 - 1;
-                                    int cy = height / 2 - 1;
-                                    int rw = (width / ratio_w) / 2;
-                                    int rh = (height / ratio_h) / 2;
-
-                                    auto ds = sub->dev.first<depth_sensor>();
-                                    if (ds.is<roi_sensor>())
-                                    {
-                                        auto r = ds.as<roi_sensor>().get_region_of_interest();
-
-                                        r.min_x = cx - rw;
-                                        r.max_x = cx + rw - 1;
-                                        r.min_y = cy - rh;
-                                        r.max_y = cy + rh - 1;
-                                        ds.as<roi_sensor>().set_region_of_interest(r);
-                                    }
-                                }
                             }
                             if( disable_perception )
                             {
@@ -2756,6 +2731,54 @@ namespace rs2
                             }
                         }
                         /* yhsu debug end */
+
+                        /* yhsu D585 set the exposure roi to the center 1 / 8 */
+                        auto stream_type = sub->profiles.front().stream_type();
+
+                        if (_simulated_start && _init_depth_roi &&_is_d500_device && (stream_type == RS2_STREAM_DEPTH))
+                        {
+                            auto video_profiles = sub->get_selected_profiles();
+                            auto video_profile = video_profiles.front().as<video_stream_profile>();
+                            auto width = video_profile.width();
+                            auto height = video_profile.height();
+                            float ratio_w = 1.5;
+                            float ratio_h = 8;
+                            int cx = width / 2 - 1;
+                            int cy = height / 2 - 1;
+                            int rw = width / ratio_w / 2;
+                            int rh = height / ratio_h / 2;
+
+                            auto ds = sub->dev.first<depth_sensor>();
+                            if (auto roi = ds.as<roi_sensor>())
+                            {
+                                auto r = roi.get_region_of_interest();
+
+                                r.min_x = std::max(cx - rw,     0);
+                                r.max_x = std::min(cx + rw - 1, width -1);
+                                r.min_y = std::max(cy - rh,     0);
+                                r.max_y = std::min(cy + rh - 1, height -1);
+
+                                roi.set_region_of_interest(r);
+                            }
+                            _init_depth_roi = false;
+                        }
+
+                        /*if (_simulated_start && _is_d500_device && (stream_type == RS2_STREAM_DEPTH))
+                        {
+                            auto ds = sub->dev.first<depth_sensor>();
+                            if (auto roi = ds.as<roi_sensor>())
+                            {
+                                auto r = roi.get_region_of_interest();
+                                char buffer[256];
+
+                                // Format the integer variable into the character array
+                                snprintf(buffer, sizeof(buffer), "roi [%d, %d] - [%d, %d]\n", r.min_x, r.min_y, r.max_x, r.max_y);
+
+                                // Pass the formatted string to OutputDebugStringA
+                                OutputDebugStringA(buffer);
+                            }
+                        }*/
+                        /* yhsu set exp roi end */
 
                         if( ImGui::Button( label.c_str(), button_size ) )
                         {

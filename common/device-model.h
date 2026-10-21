@@ -442,6 +442,7 @@ namespace rs2
 
         bool _is_d500_device;
         bool _simulated_start = true;
+        bool _init_depth_roi = true;
     };
 
     std::pair<std::string, std::string> get_device_name(const device& dev);
