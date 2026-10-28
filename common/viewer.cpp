@@ -1432,8 +1432,10 @@ namespace rs2
         std::sort(default_ordered.begin(), default_ordered.end(),
             [](const stream_model* sm1, const stream_model* sm2)
             {
-#if 1 //vertical layout
-                return (sm1->profile.unique_id() < sm2->profile.unique_id());
+#if 1 //vertical layout - group by serial number
+                //return (sm1->profile.unique_id() < sm2->profile.unique_id());
+                return (std::stoll(stream_serial(sm1)) < std::stoll(stream_serial(sm2)) ||
+                    ((std::stoll(stream_serial(sm1)) == std::stoll(stream_serial(sm2))) && (sm1->profile.stream_type() < sm2->profile.stream_type())));
 #else //horizontal layout
                 return (sm1->profile.stream_type() < sm2->profile.stream_type()) ||
                     ((sm1->profile.stream_type() == sm2->profile.stream_type()) && (sm1->profile.stream_index() < sm2->profile.stream_index()));
